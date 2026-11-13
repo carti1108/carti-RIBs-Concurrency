@@ -1,4 +1,4 @@
-# MicroRIBs
+# carti-RIBs-Concurrency
 
 Uber의 [RIBs](https://github.com/uber/RIBs-iOS) 아키텍처를 Swift Concurrency 중심으로 재구성.
 
@@ -55,7 +55,7 @@ private let isActiveSubject = BehaviorSubject<Bool>(value: false)
 var isActiveStream: Observable<Bool> { isActiveSubject.asObservable() }
 ```
 
-이를 [CurrentValueAsyncStream](Sources/MicroRIBs/Extension/CurrentValueAsyncStream.swift)으로 치환.
+이를 [CurrentValueAsyncStream](Sources/CartiRIBsConcurrency/Extension/CurrentValueAsyncStream.swift)으로 치환.
 
 ```swift
 private let isActiveSubject = CurrentValueAsyncStream<Bool>(false)
@@ -80,7 +80,7 @@ RIBs가 `Router`, `ViewableRouter`, `Worker`에서 "구독 직후 current state�
 ```swift
 private let lifecycleSubject = PublishSubject<RouterLifecycle>()
 ```
-이를 [PassthroughAsyncSubject](Sources/MicroRIBs/Extension/PassthroughAsyncSubject.swift)로 치환.
+이를 [PassthroughAsyncSubject](Sources/CartiRIBsConcurrency/Extension/PassthroughAsyncSubject.swift)로 치환.
 
 ```swift
 private let lifecycleSubject = PassthroughAsyncSubject<RouterLifecycle>()
@@ -102,7 +102,7 @@ RIBs는 interactor deactivate, worker stop, router deinit 시점에 여러 subsc
 private var disposable: CompositeDisposable?
 ```
 
-이를 [CompositeCancellable](Sources/MicroRIBs/Extension/CompositeCancellable.swift)로 치환.
+이를 [CompositeCancellable](Sources/CartiRIBsConcurrency/Extension/CompositeCancellable.swift)로 치환.
 
 ```swift
 private var workerCancellable: CompositeCancellable?
@@ -118,7 +118,7 @@ private var workerCancellable: CompositeCancellable?
 
 Rx 코드는 객체 소유권에 subscription lifetime을 묶기 위해 `DisposeBag`을 자주 씀.
 
-이를 [AnyCancelTaskBag](Sources/MicroRIBs/Extension/AnyCancelTaskBag.swift)을 사용함.
+이를 [AnyCancelTaskBag](Sources/CartiRIBsConcurrency/Extension/AnyCancelTaskBag.swift)을 사용함.
 
 ```swift
 let task = Task { ... }
@@ -151,7 +151,7 @@ combineLatest(interactorScope.isActiveStream, self)
     .eraseToStream()
 ```
 
-관련 구현은 [Interactor.swift](Sources/MicroRIBs/Interactor.swift)와 [AsyncSequence+.swift](Sources/MicroRIBs/Extension/AsyncSequence+.swift).
+관련 구현은 [Interactor.swift](Sources/CartiRIBsConcurrency/Interactor.swift)와 [AsyncSequence+.swift](Sources/CartiRIBsConcurrency/Extension/AsyncSequence+.swift).
 
 ### `disposeOnDeactivate` / `disposeOnStop` 치환
 
@@ -258,6 +258,6 @@ extension helper도 같은 문맥으로 맞춤.
 
 ## 라이선스
 
-MicroRIBs는 [uber/RIBs-iOS](https://github.com/uber/RIBs-iOS)(Copyright (c) 2017 Uber Technologies)를 바탕으로 RxSwift 의존성을 Swift Concurrency로 바꾼 파생 프로젝트이며, 원본과 같은 Apache License 2.0으로 배포합니다. 원본에서 가져와 수정한 파일에는 원본 저작권 고지와 수정 사실을 남겼습니다. 전문은 [LICENSE.txt](LICENSE.txt)를 참고하세요.
+carti-RIBs-Concurrency는 [uber/RIBs-iOS](https://github.com/uber/RIBs-iOS)(Copyright (c) 2017 Uber Technologies)를 바탕으로 RxSwift 의존성을 Swift Concurrency로 바꾼 파생 프로젝트이며, 원본과 같은 Apache License 2.0으로 배포합니다. 원본에서 가져와 수정한 파일에는 원본 저작권 고지와 수정 사실을 남겼습니다. 전문은 [LICENSE.txt](LICENSE.txt)를 참고하세요.
 
-MicroRIBs는 Uber의 공식 프로젝트가 아닙니다.
+carti-RIBs-Concurrency는 Uber의 공식 프로젝트가 아닙니다.
