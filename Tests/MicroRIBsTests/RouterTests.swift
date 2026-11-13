@@ -36,8 +36,12 @@ struct RouterTests {
 	final class MockInteractable: Interactable, @unchecked Sendable {
 		var isActive: Bool { isActiveSubject.value }
 		var isActiveStream: AsyncStream<Bool> { isActiveSubject.stream }
+
+		func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation {
+			isActiveSubject.observe(onChange)
+		}
 		
-		let isActiveSubject = CurrentValueAsyncStream<Bool>(false)
+		let isActiveSubject = ActiveStateRelay(false)
 		
 		var activateCallCount = 0
 		var deactivateCallCount = 0
@@ -280,5 +284,71 @@ struct RouterTests {
 		#expect(grandparentInteractor.isActive == true)
 		#expect(parentInteractor.isActive == true)
 		#expect(childInteractor.isActive == true, "손자까지 모두 다시 활성화되어야 합니다")
+	}
+
+	@Test
+	func 부모인터랙터가비활성화되면_반환전에손자까지동기로비활성화되는지() {
+		// given
+		let parentInteractor = MockInteractable()
+		let parentRouter = TestRouter(interactor: parentInteractor)
+		let childInteractor = MockInteractable()
+		let childRouter = TestRouter(interactor: childInteractor)
+		let grandchildInteractor = MockInteractable()
+		let grandchildRouter = TestRouter(interactor: grandchildInteractor)
+		parentInteractor.activate()
+		parentRouter.load()
+		parentRouter.attachChild(childRouter)
+		childRouter.attachChild(grandchildRouter)
+
+		// when
+		parentInteractor.deactivate()
+
+		// then: 기다리지 않아도 이미 반영되어 있어야 함
+		#expect(childInteractor.isActive == false)
+		#expect(grandchildInteractor.isActive == false)
+
+		// when
+		parentInteractor.activate()
+
+		// then
+		#expect(childInteractor.isActive == true)
+		#expect(grandchildInteractor.isActive == true)
+	}
+
+	@Test
+	func 부모활성상태가빠르게토글되면_자식생명주기가빠짐없이호출되는지() {
+		// given
+		let parentInteractor = MockInteractable()
+		let parentRouter = TestRouter(interactor: parentInteractor)
+		let childInteractor = MockInteractable()
+		parentInteractor.activate()
+		parentRouter.load()
+		parentRouter.attachChild(TestRouter(interactor: childInteractor))
+
+		// when
+		parentInteractor.deactivate()
+		parentInteractor.activate()
+
+		// then
+		#expect(childInteractor.deactivateCallCount == 1)
+		#expect(childInteractor.activateCallCount == 2)
+	}
+
+	@Test
+	func 로드된라우터를놓으면_활성상태관찰때문에남지않고해제되는지() async {
+		// given
+		weak var weakRouter: TestRouter?
+		do {
+			let router = TestRouter(interactor: MockInteractable())
+			router.interactable.activate()
+			router.load()
+			weakRouter = router
+		}
+
+		// when: 이전 구현에서 바인딩 Task가 실행될 기회를 줌
+		await Task.yield()
+
+		// then
+		#expect(weakRouter == nil)
 	}
 }

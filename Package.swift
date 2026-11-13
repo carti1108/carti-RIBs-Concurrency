@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,8 +6,9 @@ import PackageDescription
 let package = Package(
     name: "MicroRIBs",
 	platforms: [
-		.iOS(.v15),
-		.macOS(.v13)
+		// `isolated deinit` needs the Swift 6.1 runtime shipped with iOS 18.4 / macOS 15.4.
+		.iOS("18.4"),
+		.macOS("15.4")
 	],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -28,9 +29,6 @@ let package = Package(
 			dependencies: [
 				.product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
 				.product(name: "OrderedCollections", package: "swift-collections")
-			],
-			swiftSettings: [
-				.enableExperimentalFeature("IsolatedDeinit")
 			]
         ),
         .testTarget(

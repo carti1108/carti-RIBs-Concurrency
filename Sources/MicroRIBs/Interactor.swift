@@ -47,6 +47,18 @@ public protocol InteractorScope: AnyObject {
 
 	/// A stream that emits a boolean value indicating whether the interactor is active.
 	var isActiveStream: AsyncStream<Bool> { get }
+
+	/// Observes the active state synchronously.
+	///
+	/// `onChange` is called immediately with the current state, then on every change before
+	/// `activate()`/`deactivate()` returns, matching the synchronous delivery of upstream Rx
+	/// subscriptions. The framework uses this to propagate lifecycle changes through the
+	/// router tree and workers. The observation ends when the returned object is cancelled
+	/// or deallocated.
+	///
+	/// - Parameter onChange: The closure called with the current and every subsequent state.
+	/// - Returns: An object that keeps the observation alive.
+	func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation
 }
 
 /// The base protocol for all interactors.
@@ -77,7 +89,12 @@ open class Interactor: Interactable {
 		return isActiveSubject.stream
 	}
 
-	private let isActiveSubject = CurrentValueAsyncStream<Bool>(false)
+	/// Observes the active state synchronously. See `InteractorScope.observeActiveState(_:)`.
+	public final func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation {
+		return isActiveSubject.observe(onChange)
+	}
+
+	private let isActiveSubject = ActiveStateRelay(false)
 	fileprivate var activenessCancellables: CompositeCancellable?
 
 	/// Initializer.
@@ -124,13 +141,11 @@ open class Interactor: Interactable {
 
 	}
 
-	deinit {
-		MainActor.assumeIsolated {
-			if self.isActive {
-				self.deactivate()
-			}
-			self.isActiveSubject.finish()
+	isolated deinit {
+		if isActive {
+			deactivate()
 		}
+		isActiveSubject.finish()
 	}
 }
 

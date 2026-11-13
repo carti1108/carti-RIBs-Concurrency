@@ -230,19 +230,27 @@ extension helper도 같은 문맥으로 맞춤.
 
 즉 teardown도 main actor 문맥에서 끝까지 정리되도록 맞춤.
 
+`isolated deinit`은 Swift 6.1 런타임이 필요해서 최소 지원 버전은 iOS 18.4 / macOS 15.4, 빌드 도구는 Swift 6.2 이상임. `MainActor.assumeIsolated`로 대신하면 마지막 참조가 메인 스레드 밖에서 풀릴 때 크래시하므로 쓰지 않음.
+
 ## 구현상 주의한 점
 
-### Rx의 current value replay semantics 유지
+### Rx의 동기 전달 semantics 유지
 
-`Task { for await ... }`만으로 Rx `BehaviorSubject`의 semantics를 완전히 대신할 수는 없음.
+`Task { for await ... }`만으로 Rx `BehaviorSubject` 구독을 대신할 수는 없음.
 
-특히 아래처럼 "구독 직후 최신 상태를 즉시 받는다"는 성질이 중요.
+- Rx 구독은 `onNext`와 같은 호출 스택에서 실행됨. 부모 `deactivate()`가 반환되기 전에 하위 트리 전체가 비활성화됨.
+- `Task`로 전달하면 한 번 넘어가서 늦게 처리되고, 빠른 `false → true` 변화가 합쳐져 `willResignActive`/`didStop` 같은 콜백이 빠질 수 있음.
+- `Task`가 `self`를 강하게 잡은 채 끝나지 않는 스트림을 돌면 router가 해제되지 않는 순환 참조가 생김.
 
-- `Router`의 subtree active state 전파
-- `ViewableRouter`의 leak detection binding
-- `Worker`의 active 상태 연동 start/stop
+그래서 생명주기 전파는 `InteractorScope.observeActiveState(_:)`로 동기 관찰함.
 
-그래서 이 프로젝트는 단순히 `for await`만 쓰지 않고, 필요한 곳에서 현재 상태를 동기적으로 먼저 초기 상태를 반영한 뒤 이후 변화만 비동기로 관찰하도록 맞춤.
+- `ActiveStateRelay`가 현재 값, 동기 옵저버 목록, `AsyncStream`을 함께 가짐.
+- 옵저버는 등록 즉시 현재 값을 받고, 이후 `send(_:)`가 반환되기 전에 등록 순서대로 호출됨.
+- `ActiveStateObservation`은 `cancel()`하거나 해제되면 관찰을 끝냄. 옵저버 클로저는 대상을 `weak`로 잡음.
+- `Router`의 subtree active state 전파, `ViewableRouter`의 leak detection, `Worker`의 start/stop이 이 방식을 씀.
+- `isActiveStream`은 `confineTo`, `Workflow`처럼 외부에서 비동기로 관찰하는 용도로 남김.
+
+`InteractorScope`를 직접 구현하는 타입은 `ActiveStateRelay`를 두고 `observeActiveState`를 `relay.observe(_:)`로 넘기면 됨.
 
 ## 참고 출처
 

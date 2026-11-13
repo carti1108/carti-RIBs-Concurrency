@@ -30,8 +30,8 @@
 // - `lifecycleSubject.onNext(.didLoad)` -> `lifecycleSubject.send(.didLoad)`
 // - `lifecycleSubject.onCompleted()` -> `lifecycleSubject.finish()`
 // - Rx subscription to `interactable.isActiveStream`
-//   -> retained `Task` iterating `interactable.isActiveStream`
-// - `CompositeDisposable` for router teardown -> `CompositeCancellable`
+//   -> synchronous `interactable.observeActiveState { ... }`
+// - `CompositeDisposable` for router teardown -> `[ActiveStateObservation]`
 
 import Foundation
 
@@ -95,7 +95,8 @@ open class Router<InteractorType>: Routing {
 		return lifecycleSubject.stream
 	}
 
-	var deinitCancellables = CompositeCancellable()
+	/// Synchronous activeness observations owned by this router, ended in `deinit`.
+	var activeStateObservations: [ActiveStateObservation] = []
 
 	private var didLoadFlag: Bool = false
 	private let lifecycleSubject = PassthroughAsyncSubject<RouterLifecycle>()
@@ -159,33 +160,18 @@ open class Router<InteractorType>: Routing {
 	}
 
 	private func bindSubtreeActiveState() {
-		let initialIsActive = interactable.isActive
-		let stream = interactable.isActiveStream
-
-		// Rx `BehaviorSubject` subscription in upstream RIBs eagerly observes the
-		// current lifecycle state. Bootstrap it synchronously before the task
-		// starts so attach/load semantics stay deterministic.
-		setSubtreeActive(initialIsActive)
-
 		// RxSwift replacement mapping:
 		// - `interactable.isActiveStream.subscribe(onNext:)`
-		//   -> `Task { for await isActive in interactable.isActiveStream { ... } }`
-		let task = Task { @MainActor [weak self] in
-			guard let self = self else { return }
-			var didObserveInitialValue = false
-
-			for await isActive in stream {
-				if !didObserveInitialValue {
-					didObserveInitialValue = true
-					if isActive == initialIsActive {
-						continue
-					}
-				}
-				self.setSubtreeActive(isActive)
-			}
+		//   -> `interactable.observeActiveState { ... }`
+		// The Rx subscription replays the current state and delivers every change in the same
+		// call stack, so the subtree follows the parent before `activate()`/`deactivate()`
+		// returns. A `Task` iterating `isActiveStream` would deliver later and could skip
+		// coalesced changes, so the synchronous observation is used instead. The closure holds
+		// the router weakly so the interactor never keeps its router alive.
+		let observation = interactable.observeActiveState { [weak self] isActive in
+			self?.setSubtreeActive(isActive)
 		}
-
-		_ = deinitCancellables.insert(task)
+		activeStateObservations.append(observation)
 	}
 
 	private func setSubtreeActive(_ active: Bool) {
@@ -217,18 +203,17 @@ open class Router<InteractorType>: Routing {
 		}
 	}
 
-	deinit {
-		MainActor.assumeIsolated {
-			self.interactable.deactivate()
+	isolated deinit {
+		interactable.deactivate()
 
-			if !children.isEmpty {
-				detachAllChildren()
-			}
-
-			lifecycleSubject.finish()
-			deinitCancellables.cancel()
-
-			_ = LeakDetector.instance.expectDeallocate(object: interactable)
+		if !children.isEmpty {
+			detachAllChildren()
 		}
+
+		lifecycleSubject.finish()
+		activeStateObservations.forEach { $0.cancel() }
+		activeStateObservations.removeAll()
+
+		_ = LeakDetector.instance.expectDeallocate(object: interactable)
 	}
 }

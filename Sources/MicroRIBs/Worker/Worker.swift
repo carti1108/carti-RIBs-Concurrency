@@ -33,9 +33,9 @@
 // - `fileprivate var disposable: CompositeDisposable?`
 //   -> `fileprivate var workerCancellable: CompositeCancellable?`
 // - `private var interactorBindingDisposable: Disposable?`
-//   -> `private var interactorBindingCancellable: AnyCancellableTask?`
+//   -> `private var interactorBindingObservation: ActiveStateObservation?`
 // - `interactorScope.isActiveStream.subscribe(onNext:)`
-//   -> `Task { for await isActive in interactorScope.isActiveStream { ... } }`
+//   -> synchronous `interactorScope.observeActiveState { ... }`
 // - Rx `Disposable.disposeOnStop(worker:)`
 //   -> `Task.cancelOnStop(worker:)` / `Task.disposeOnStop(worker:)`
 
@@ -121,42 +121,25 @@ open class Worker: Working {
 
 	private let isStartedSubject = CurrentValueAsyncStream<Bool>(false)
 	fileprivate var workerCancellable: CompositeCancellable?
-	private var interactorBindingCancellable: AnyCancellableTask?
+	private var interactorBindingObservation: ActiveStateObservation?
 
 	private func bind(to interactorScope: InteractorScope) {
 		unbindInteractor()
-		let initialIsInteractorActive = interactorScope.isActive
-		let stream = interactorScope.isActiveStream
 
-		// Rx `BehaviorSubject` would immediately replay the current active state
-		// on subscription. Apply the same bootstrap synchronously so `start(_:)`
-		// behaves deterministically when the bound interactor is already active.
-		if initialIsInteractorActive {
-			if isStarted {
-				executeStart(interactorScope)
-			}
-		} else {
-			executeStop()
-		}
-
-		interactorBindingCancellable = Task { @MainActor [weak self] in
-			var didObserveInitialValue = false
-
-			for await isInteractorActive in stream {
-				if !didObserveInitialValue {
-					didObserveInitialValue = true
-					if isInteractorActive == initialIsInteractorActive {
-						continue
-					}
+		// RxSwift replacement mapping:
+		// - `interactorScope.isActiveStream.subscribe(onNext:)`
+		//   -> `interactorScope.observeActiveState { ... }`
+		// Like the Rx subscription, the current state is applied immediately and every later
+		// change runs `didStart`/`didStop` before the interactor's `activate()`/`deactivate()`
+		// returns, so no transition is skipped.
+		interactorBindingObservation = interactorScope.observeActiveState { [weak self] isInteractorActive in
+			guard let self else { return }
+			if isInteractorActive {
+				if self.isStarted {
+					self.executeStart(interactorScope)
 				}
-
-				if isInteractorActive {
-					if self?.isStarted == true {
-						self?.executeStart(interactorScope)
-					}
-				} else {
-					self?.executeStop()
-				}
+			} else {
+				self.executeStop()
 			}
 		}
 	}
@@ -178,16 +161,14 @@ open class Worker: Working {
 	}
 
 	private func unbindInteractor() {
-		interactorBindingCancellable?.cancel()
-		interactorBindingCancellable = nil
+		interactorBindingObservation?.cancel()
+		interactorBindingObservation = nil
 	}
 
-	deinit {
-		MainActor.assumeIsolated {
-			stop()
-			unbindInteractor()
-			isStartedSubject.finish()
-		}
+	isolated deinit {
+		stop()
+		unbindInteractor()
+		isStartedSubject.finish()
 	}
 }
 
@@ -245,6 +226,14 @@ fileprivate class WeakInteractorScope: InteractorScope {
 			continuation.yield(false)
 			continuation.finish()
 		}
+	}
+
+	func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation {
+		guard let sourceScope else {
+			onChange(false)
+			return ActiveStateObservation {}
+		}
+		return sourceScope.observeActiveState(onChange)
 	}
 
 	fileprivate init(sourceScope: InteractorScope? = nil) {

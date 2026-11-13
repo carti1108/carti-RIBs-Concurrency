@@ -33,10 +33,14 @@ struct WorkerTests {
 
 	@MainActor
 	final class MockInteractorScope: InteractorScope, @unchecked Sendable {
-		let isActiveSubject = CurrentValueAsyncStream<Bool>(false)
+		let isActiveSubject = ActiveStateRelay(false)
 
 		var isActive: Bool { isActiveSubject.value }
 		var isActiveStream: AsyncStream<Bool> { isActiveSubject.stream }
+
+		func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation {
+			isActiveSubject.observe(onChange)
+		}
 
 		func setActive(_ value: Bool) {
 			isActiveSubject.send(value)
@@ -224,5 +228,22 @@ struct WorkerTests {
 		finished = true
 
 		#expect(finished)
+	}
+
+	@Test
+	func 인터랙터가빠르게토글되면_didStop과didStart가반환전에모두호출되는지() {
+		// given
+		let interactorScope = MockInteractorScope()
+		interactorScope.setActive(true)
+		let worker = TestWorker()
+		worker.start(interactorScope)
+
+		// when
+		interactorScope.setActive(false)
+		interactorScope.setActive(true)
+
+		// then
+		#expect(worker.didStopCallCount == 1)
+		#expect(worker.didStartCallCount == 2)
 	}
 }

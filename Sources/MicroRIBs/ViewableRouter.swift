@@ -25,8 +25,8 @@
 
 // RxSwift replacement mapping:
 // - Rx subscription to `interactable.isActiveStream`
-//   -> retained `Task` iterating `interactable.isActiveStream`
-// - `deinitDisposable.insert(disposable)` -> `deinitCancellables.insert(task)`
+//   -> synchronous `interactable.observeActiveState { ... }`
+// - `deinitDisposable.insert(disposable)` -> `activeStateObservations.append(observation)`
 // - upstream `viewControllable.uiviewController`
 //   -> `viewControllable.uiViewController` / `uiviewController` alias
 // The leak detection target and timing are kept aligned with upstream RIBs.
@@ -72,27 +72,12 @@ open class ViewableRouter<InteractorType, ViewControllerType>: Router<Interactor
 	}
 
 	private func setupViewControllerLeakDetection() {
-		let initialIsActive = interactable.isActive
-		let stream = interactable.isActiveStream
-
-		handleInteractableStateChange(initialIsActive)
-
-		let task = Task { @MainActor [weak self] in
-			guard let self = self else { return }
-			var didObserveInitialValue = false
-
-			for await isActive in stream {
-				if !didObserveInitialValue {
-					didObserveInitialValue = true
-					if isActive == initialIsActive {
-						continue
-					}
-				}
-				self.handleInteractableStateChange(isActive)
-			}
+		// Observed synchronously like the upstream Rx subscription. The closure holds the
+		// router weakly so the interactor never keeps its router alive.
+		let observation = interactable.observeActiveState { [weak self] isActive in
+			self?.handleInteractableStateChange(isActive)
 		}
-
-		_ = deinitCancellables.insert(task)
+		activeStateObservations.append(observation)
 	}
 
 	private func handleInteractableStateChange(_ isActive: Bool) {
@@ -110,13 +95,11 @@ open class ViewableRouter<InteractorType, ViewControllerType>: Router<Interactor
 		}
 	}
 
-	deinit {
-		MainActor.assumeIsolated {
-			_ = LeakDetector.instance.expectDeallocate(
-				object: trackedViewController,
-				inTime: LeakDefaultExpectationTime.viewDisappear
-			)
-		}
+	isolated deinit {
+		_ = LeakDetector.instance.expectDeallocate(
+			object: trackedViewController,
+			inTime: LeakDefaultExpectationTime.viewDisappear
+		)
 	}
 
 	private var trackedViewController: AnyObject {

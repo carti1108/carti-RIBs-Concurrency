@@ -34,10 +34,14 @@ struct LaunchRouterTests {
 
 	@MainActor
 	final class MockInteractable: Interactable, @unchecked Sendable {
-		let isActiveSubject = CurrentValueAsyncStream<Bool>(false)
+		let isActiveSubject = ActiveStateRelay(false)
 
 		var isActive: Bool { isActiveSubject.value }
 		var isActiveStream: AsyncStream<Bool> { isActiveSubject.stream }
+
+		func observeActiveState(_ onChange: @escaping @MainActor (Bool) -> Void) -> ActiveStateObservation {
+			isActiveSubject.observe(onChange)
+		}
 
 		var activateCallCount = 0
 		var deactivateCallCount = 0
