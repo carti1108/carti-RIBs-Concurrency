@@ -247,3 +247,9 @@ extension helper도 같은 문맥으로 맞춤.
 ## 참고 출처
 
 - [uber/RIBs-iOS PR #49](https://github.com/uber/RIBs-iOS/pull/49)
+
+## 라이선스
+
+MicroRIBs는 [uber/RIBs-iOS](https://github.com/uber/RIBs-iOS)(Copyright (c) 2017 Uber Technologies)를 바탕으로 RxSwift 의존성을 Swift Concurrency로 바꾼 파생 프로젝트이며, 원본과 같은 Apache License 2.0으로 배포합니다. 원본에서 가져와 수정한 파일에는 원본 저작권 고지와 수정 사실을 남겼습니다. 전문은 [LICENSE.txt](LICENSE.txt)를 참고하세요.
+
+MicroRIBs는 Uber의 공식 프로젝트가 아닙니다.
