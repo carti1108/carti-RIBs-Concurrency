@@ -199,18 +199,16 @@ open class Router<InteractorType>: Routing {
 		}
 	}
 
-	deinit {
-		MainActor.assumeIsolated {
-			self.interactable.deactivate()
+	isolated deinit {
+		self.interactable.deactivate()
 
-			if !children.isEmpty {
-				detachAllChildren()
-			}
-
-			lifecycleSubject.finish()
-			deinitCancellables.cancel()
-
-			_ = LeakDetector.instance.expectDeallocate(object: interactable)
+		if !children.isEmpty {
+			detachAllChildren()
 		}
+
+		lifecycleSubject.finish()
+		deinitCancellables.cancel()
+
+		LeakDetector.instance.expectDeallocate(object: interactable)
 	}
 }
